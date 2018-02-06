@@ -18,8 +18,10 @@
  *
  *  Version history
 */
-public static String version() { return "v0.2.100.20171211" }
+public static String version() { return "v0.2.102.20180116" }
 /*
+ *      01/16/2018 >>> v0.2.102.20180116 - BETA M2 - Fixed IE 11 script error, display of offset expression evaluation, blank device lists on piston restore, avoid error and log a warning when ST sunrise/sunset is blank
+ *	12/27/2017 >>> v0.2.101.20171227 - BETA M2 - Fixed 172.x.x.x web requests thanks to @tbam, fixed array subscripting with 0.0 decimal value as in a for loop using $index
  *	12/11/2017 >>> v0.2.100.20171211 - BETA M2 - Replaced the scheduler-based timeout recovery handling to ease up on resource usage
  *	11/29/2017 >>> v0.2.0ff.20171129 - BETA M2 - Fixed missing conditions and triggers for several device attributes, new comparison group for binary files
  *	11/09/2017 >>> v0.2.0fe.20171109 - BETA M2 - Fixed on events subscription for global and superglobal variables
@@ -1806,14 +1808,14 @@ private scheduleTimer(rtData, timer, long lastRun = 0) {
     lastRun = lastRun ? utcToLocalTime(lastRun) : rightNow
     long nextSchedule = lastRun
 
-    if (lastRun >= rightNow) {
+    if (lastRun > rightNow) {
     	//sometimes ST runs timers early, so we need to make sure we're at least in the near future
     	rightNow = lastRun + 1
     }
 
     if (intervalUnit == 'h') {
     	long min = cast(rtData, timer.lo.om, 'long')
-    	nextSchedule = (long) 3600000 * (Math.floor(nextSchedule / 3600000) - 1) + (min * 60000)
+    	nextSchedule = (long) 3600000 * Math.floor(nextSchedule / 3600000) + (min * 60000)
     }
 
     //next date
@@ -3217,7 +3219,7 @@ private long vcmd_httpRequest(rtData, device, params) {
 	def internal = uri.startsWith("10.") || uri.startsWith("192.168.")
 	if ((!internal) && uri.startsWith("172.")) {
 		//check for the 172.16.x.x/12 class
-		def b = uri.substring(4,2)
+		def b = uri.substring(4,6)
 		if (b.isInteger()) {
 			b = b.toInteger()
 			internal = (b >= 16) && (b <= 31)
@@ -5061,7 +5063,9 @@ private Map getVariable(rtData, name) {
         	Map indirectVar = getVariable(rtData, var.index)
             //indirect variable addressing
             if (indirectVar && (indirectVar.t != 'error')) {
-            	var.index = cast(rtData, indirectVar.t == 'decimal' ? cast(rtData, indirectVar.v, 'integer', indirectVar.t) : indirectVar.v, 'string', indirectVar.t)
+                def value = indirectVar.t == 'decimal' ? cast(rtData, indirectVar.v, 'integer', indirectVar.t) : indirectVar.v
+                def dataType = indirectVar.t == 'decimal' ? 'integer' : indirectVar.t
+                var.index = cast(rtData, value, 'string', dataType)
             }
         	result.v = result.v[var.index]
 //        } else {
@@ -7698,6 +7702,11 @@ private initSunriseAndSunset(rtData) {
     def rightNow = localTime()
     if (!rtData.sunTimes) {
     	def sunTimes = app.getSunriseAndSunset()
+        if (!sunTimes.sunrise) {
+            warn "Actual sunrise and sunset times are unavailable; please reset the location for your hub", rtData
+            sunTimes.sunrise = new Date(getMidnightTime() + 7 * 3600000)
+            sunTimes.sunset = new Date(getMidnightTime() + 19 * 3600000)
+        }
         rtData.sunTimes = [
     		sunrise: sunTimes.sunrise.time,
     		sunset: sunTimes.sunset.time,
